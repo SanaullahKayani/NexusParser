@@ -77,12 +77,13 @@ def clean_error_message(message: str) -> str:
         ):
             # Preserve the first stack frame for context
             if first_stack_frame is None:
-                # Prefer explicit 'at ' frames; otherwise any frame-like content
-                if line.startswith('at '):
-                    first_stack_frame = line
-                else:
-                    # Normalize to start with 'at '
-                    first_stack_frame = f"at {line}"
+                first_stack_frame = line
+                # # Prefer explicit 'at ' frames; otherwise any frame-like content
+                # if line.startswith('at '):
+                #     first_stack_frame = line
+                # else:
+                #     # Normalize to start with 'at '
+                #     first_stack_frame = f"at {line}"
             continue
             
         cleaned_lines.append(line)
@@ -127,9 +128,12 @@ def clean_error_message(message: str) -> str:
 
     # Append the first stack frame for essential context, if missing
     if first_stack_frame and ' at ' not in cleaned_message:
-        cleaned_message = f"{cleaned_message} {first_stack_frame}"
+        if cleaned_message:
+            cleaned_message = f"{cleaned_message} {first_stack_frame}"
+        else:
+            cleaned_message = first_stack_frame
     
-    return cleaned_message
+    return cleaned_message.strip()
 
 def clean_canonical_log_info(log_info: str) -> str:
     """Extract key details from canonical_log_info (errors, context, main exception)."""
