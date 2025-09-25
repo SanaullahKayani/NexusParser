@@ -1,0 +1,8 @@
+# Ignore all CSV and log files
+*.csv
+*.log
+
+# Ignore specific folders (replace with your folder names)
+__pycache__/
+error Files/
+venv/
