@@ -28,6 +28,23 @@ BIG_NUM_RE = re.compile(r"\b\d{5,}\b")
 
 WHITESPACE_RE = re.compile(r"\s+")
 
+# Domain-specific normalizers to reduce duplicates
+BRACKET_CTX_PREFIX_RE = re.compile(r"^\[[^\]]+\]\s+")
+CONN_WRAPPER_HEX_RE = re.compile(r"ConnectionWrapper@([0-9a-fA-F]+)")
+JAVA_PID_RE = re.compile(r"\b(INFO|WARN|ERROR|DEBUG|TRACE)\s+\d+\s+---")
+JAVA_PROC_BRACKET_PID_RE = re.compile(r"java\[\d+\]")
+USER_NO_OFFICE_RE = re.compile(r"(Cannot find matching office for user )[^\s,]+")
+# Vault path masking inside RequestedSecret path
+VAULT_SECRET_PATH_RE = re.compile(r"(RequestedSecret \[path=')kv/approle/roles/nexus/staging/DC1/scm-api(?:/[^']+)?('])", re.IGNORECASE)
+# Normalize L:/IP:PORT and R:host/IP:PORT port numbers to <NUM>
+L_ADDR_PORT_RE = re.compile(r"(L:/)(?:\d{1,3}\.){3}\d{1,3}:(\d+)")
+R_ADDR_PORT_RE = re.compile(r"(R:[^/]+/)(?:\d{1,3}\.){3}\d{1,3}:(\d+)")
+# Generic patterns
+QUOTED_SINGLE_RE = re.compile(r"'[^']*'")
+QUOTED_DOUBLE_RE = re.compile(r'"[^"]*"')
+DURATION_MS_RE = re.compile(r"\b\d+ms\b")
+PORT_SUFFIX_RE = re.compile(r":\d+\b")
+
 EXPECTED_FIELDS = [
 	'Timestamp','LogLevel','LogPurpose','Hostname','Application','Service','Instance','Office','Country','Roles','Message','SourceFile','FileType','LogInfo'
 ]
@@ -61,6 +78,26 @@ def canonicalize_message(message: str) -> str:
 	if not message:
 		return ""
 	text = message
+	# 1) Remove leading Reactor/Netty bracket context like: "[c194f82e-9, L:/127.0.0.1:33842 ! R:localhost/127.0.0.1:8888] "
+	text = BRACKET_CTX_PREFIX_RE.sub('', text)
+	# 2) Normalize L:/IP:PORT and R:host/IP:PORT to hide ephemeral ports
+	text = L_ADDR_PORT_RE.sub(r"\1<IP>:<NUM>", text)
+	text = R_ADDR_PORT_RE.sub(r"\1<IP>:<NUM>", text)
+	# 3) Mask ConnectionWrapper hex ids
+	text = CONN_WRAPPER_HEX_RE.sub("ConnectionWrapper@<HEX>", text)
+	# 4) Remove java[PID] tokens in syslog-like prefaces
+	text = JAVA_PROC_BRACKET_PID_RE.sub("java[<NUM>]", text)
+	# 5) Normalize logger line header "WARN 1723072 ---" -> "WARN <NUM> ---"
+	text = JAVA_PID_RE.sub(lambda m: f"{m.group(1)} <NUM> ---", text)
+	# 6) Canonicalize vault RequestedSecret paths to base service
+	text = VAULT_SECRET_PATH_RE.sub(r"\1kv/approle/roles/nexus/staging/DC1/scm-api\2", text)
+	# 7) Collapse username specifics in "Cannot find matching office for user ..."
+	text = USER_NO_OFFICE_RE.sub(r"\1<USER>", text)
+	# 8) Normalize durations like 10000ms
+	text = DURATION_MS_RE.sub('<NUM>ms', text)
+	# 9) Replace quoted strings with tokens to collapse minor value differences
+	text = QUOTED_SINGLE_RE.sub("'<STR>'", text)
+	text = QUOTED_DOUBLE_RE.sub('"<STR>"', text)
 	text = URL_RE.sub('<URL>', text)
 	text = EMAIL_RE.sub('<EMAIL>', text)
 	text = IPV4_RE.sub('<IP>', text)
@@ -260,7 +297,7 @@ def preprocess_csv_for_llm(input_csv: str, output_csv: str, output_jsonl: Option
 
 
 def main():
-	input_csv = os.environ.get('SCM_INPUT_CSV', 'scm_error_warn_logs_cleaned.csv')
+	input_csv = os.environ.get('SCM_INPUT_CSV', 'technical-2025-09-05_cleaned.csv')
 	output_csv = os.environ.get('SCM_OUTPUT_CSV', 'scm_logs_llm_ready.csv')
 	output_jsonl = os.environ.get('SCM_OUTPUT_JSONL', 'scm_logs_llm_ready.jsonl')
 
