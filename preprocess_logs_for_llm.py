@@ -44,6 +44,7 @@ QUOTED_SINGLE_RE = re.compile(r"'[^']*'")
 QUOTED_DOUBLE_RE = re.compile(r'"[^"]*"')
 DURATION_MS_RE = re.compile(r"\b\d+ms\b")
 PORT_SUFFIX_RE = re.compile(r":\d+\b")
+METRICS_KV_NUM_RE = re.compile(r"\b(total|active|idle|waiting|size|connections|threads|count|pool|queue|timeout|retries|retry|attempts)=(\d+)\b", re.IGNORECASE)
 
 EXPECTED_FIELDS = [
 	'Timestamp','LogLevel','LogPurpose','Hostname','Application','Service','Instance','Office','Country','Roles','Message','SourceFile','FileType','LogInfo'
@@ -95,6 +96,8 @@ def canonicalize_message(message: str) -> str:
 	text = USER_NO_OFFICE_RE.sub(r"\1<USER>", text)
 	# 8) Normalize durations like 10000ms
 	text = DURATION_MS_RE.sub('<NUM>ms', text)
+	# 8b) Normalize pool metrics key=value numbers
+	text = METRICS_KV_NUM_RE.sub(lambda m: f"{m.group(1)}=<NUM>", text)
 	# 9) Replace quoted strings with tokens to collapse minor value differences
 	text = QUOTED_SINGLE_RE.sub("'<STR>'", text)
 	text = QUOTED_DOUBLE_RE.sub('"<STR>"', text)
