@@ -25,21 +25,6 @@ ANGLE_MSGID_RE = re.compile(r"<[^>]+@[^>]+>")
 EASY_NUM_RE = re.compile(r"\b\d{2,}-\d{2,}-\d+-\d+\b")
 HEX_RE = re.compile(r"\b0x[0-9a-fA-F]+\b")
 BIG_NUM_RE = re.compile(r"\b\d{5,}\b")
-# Paths and class names
-UNIX_PATH_RE = re.compile(r"(?:(?<![A-Za-z]):/|/)[^\s,:;\]]+")
-WINDOWS_PATH_RE = re.compile(r"(?:[A-Za-z]:\\|\\\\)[^\s,:;\]]+")
-FQ_CLASS_RE = re.compile(r"\b(?:[a-z_][\w]*\.)+([A-Z][\w$]+)\b")
-STACKTRACE_PREFIX_RE = re.compile(r"\bstacktrace=")
-GENERIC_AT_HEX_RE = re.compile(r"@([0-9a-fA-F]{6,})\b")
-BEAN_HASH_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9_$]*)#([0-9a-fA-F]{4,})\b")
-RABBIT_CONN_RE = re.compile(r"\b(rabbitConnectionFactory)#([0-9a-fA-F]{4,}):(\d+)/SimpleConnection@([0-9a-fA-F]{4,})\b")
-# General rabbitConnectionFactory variants (collapse all to <rabbitConnectionFactory>)
-RABBIT_ANY_RE = re.compile(r"\brabbitConnectionFactory(?:#[0-9a-fA-F]+)?(?::\d+)?(?:/SimpleConnection@[0-9a-fA-F]+)?\b")
-# Remove any trailing suffix after canonical token
-RABBIT_TOKEN_TRAIL_RE = re.compile(r"(<rabbitConnectionFactory>)(?::[^\s\]]+)?")
-# SQL queries (collapse to <QUERY>) including bracketed forms
-BRACKETED_SQL_RE = re.compile(r"\[(?:select|insert|update|delete)[\s\S]*?\]", re.IGNORECASE)
-SQL_VERB_RE = re.compile(r"\b(?:select|insert|update|delete)\b[\s\S]*?(?=\)|\]|$)", re.IGNORECASE)
 
 WHITESPACE_RE = re.compile(r"\s+")
 
@@ -62,7 +47,7 @@ PORT_SUFFIX_RE = re.compile(r":\d+\b")
 METRICS_KV_NUM_RE = re.compile(r"\b(total|active|idle|waiting|size|connections|threads|count|pool|queue|timeout|retries|retry|attempts)=(\d+)\b", re.IGNORECASE)
 
 EXPECTED_FIELDS = [
-	'Timestamp','Level','Message'
+	'Timestamp','LogLevel','LogPurpose','Hostname','Application','Service','Instance','Office','Country','Roles','Message','SourceFile','FileType','LogInfo'
 ]
 
 TIMESTAMP_FORMATS = [
@@ -128,25 +113,6 @@ def canonicalize_message(message: str) -> str:
 	text = BIG_NUM_RE.sub('<NUM>', text)
 	# Normalize whitespace and trim
 	text = WHITESPACE_RE.sub(' ', text).strip()
-	# 10) Canonicalize rabbit connection patterns EARLY -> <rabbitConnectionFactory>
-	text = RABBIT_CONN_RE.sub('<rabbitConnectionFactory>', text)
-	text = RABBIT_ANY_RE.sub('<rabbitConnectionFactory>', text)
-	text = RABBIT_TOKEN_TRAIL_RE.sub(r"\1", text)
-	# 11) Canonicalize paths (Unix/Windows) to <PATH>
-	text = UNIX_PATH_RE.sub('<PATH>', text)
-	text = WINDOWS_PATH_RE.sub('<PATH>', text)
-	# 12) Reduce fully-qualified class names to simple class names
-	text = FQ_CLASS_RE.sub(lambda m: m.group(1), text)
-	# 13) Remove explicit 'stacktrace=' prefixes
-	text = STACKTRACE_PREFIX_RE.sub('', text)
-	# 14) Canonicalize hex ids after '@' to @<HEX>
-	text = GENERIC_AT_HEX_RE.sub('@<HEX>', text)
-	# 15) Canonicalize bean hash suffixes like bean#1462b84 -> bean#<HEX>
-	text = BEAN_HASH_RE.sub(lambda m: f"{m.group(1)}#<HEX>", text)
-	# 16) Collapse SQL queries to <QUERY>
-	text = BRACKETED_SQL_RE.sub('<QUERY>', text)
-	# As a fallback, collapse standalone SQL starting with verbs
-	text = SQL_VERB_RE.sub('<QUERY>', text)
 	return text
 
 
@@ -175,10 +141,14 @@ def canonicalize_loginformation(log_info: str) -> str:
 
 
 def compute_signature(row: Dict[str, str]) -> Tuple[str, str]:
-	"""Compute a stable signature using only level and canonical message; returns (hex_digest, canonical_message)."""
-	level = (row.get('Level') or row.get('LogLevel') or '').upper()
+	"""Compute a stable signature from meaningful fields; returns (hex_digest, canonical_message)."""
+	purpose = (row.get('LogPurpose') or '').upper()
+	level = (row.get('LogLevel') or '').upper()
+	app = (row.get('Application') or '').lower()
+	service = (row.get('Service') or '').lower()
 	canon_msg = canonicalize_message(row.get('Message') or '')
-	base = '\n'.join([level, canon_msg])
+	canon_info = canonicalize_loginformation(row.get('LogInfo') or '')
+	base = '\n'.join([purpose, level, app, service, canon_msg, canon_info])
 	digest = hashlib.sha1(base.encode('utf-8', errors='ignore')).hexdigest()
 	return digest, canon_msg
 
@@ -186,19 +156,38 @@ def compute_signature(row: Dict[str, str]) -> Tuple[str, str]:
 # Aggregator
 class Group:
 	__slots__ = (
-		'fingerprint','level','canonical_message','example_message','count','first_seen','last_seen'
+		'fingerprint','purpose','level','application','service','canonical_message','canonical_info',
+		'example_message','example_source','roles','hosts','sources','count','first_seen','last_seen'
 	)
-	def __init__(self, fingerprint: str, row: Dict[str,str], canonical_message: str):
+	def __init__(self, fingerprint: str, row: Dict[str,str], canonical_message: str, canonical_info: str):
 		self.fingerprint = fingerprint
-		self.level = (row.get('Level') or row.get('LogLevel') or '').strip()
+		self.purpose = (row.get('LogPurpose') or '').strip()
+		self.level = (row.get('LogLevel') or '').strip()
+		self.application = (row.get('Application') or '').strip()
+		self.service = (row.get('Service') or '').strip()
 		self.canonical_message = canonical_message
+		self.canonical_info = canonical_info
 		self.example_message = (row.get('Message') or '').strip()
+		self.example_source = (row.get('SourceFile') or '').strip()
+		self.roles: Set[str] = set(filter(None, [(row.get('Roles') or '').strip()]))
+		self.hosts: Set[str] = set(filter(None, [(row.get('Hostname') or '').strip()]))
+		self.sources: Set[str] = set(filter(None, [(row.get('SourceFile') or '').strip()]))
 		self.count = 1
 		self.first_seen = row.get('Timestamp') or ''
 		self.last_seen = row.get('Timestamp') or ''
 
 	def update(self, row: Dict[str,str]):
 		self.count += 1
+		role = (row.get('Roles') or '').strip()
+		if role:
+			self.roles.add(role)
+		host = (row.get('Hostname') or '').strip()
+		if host:
+			self.hosts.add(host)
+		src = (row.get('SourceFile') or '').strip()
+		if src:
+			self.sources.add(src)
+		# Update first/last seen via timestamp comparison if possible
 		curr_ts = row.get('Timestamp') or ''
 		self.first_seen, self.last_seen = update_time_bounds(self.first_seen, self.last_seen, curr_ts)
 
@@ -235,7 +224,7 @@ def preprocess_csv_for_llm(input_csv: str, output_csv: str, output_jsonl: Option
 
 	with open(input_csv, 'r', encoding='utf-8', newline='') as f:
 		reader = csv.DictReader(f)
-		missing = [c for c in EXPECTED_FIELDS if c not in (reader.fieldnames or [])]
+		missing = [c for c in EXPECTED_FIELDS if c not in reader.fieldnames]
 		if missing:
 			raise RuntimeError(f"Input CSV missing required columns: {missing}")
 
@@ -243,27 +232,41 @@ def preprocess_csv_for_llm(input_csv: str, output_csv: str, output_jsonl: Option
 			stats['rows_read'] += 1
 			# Compute signature
 			fp, canon_msg = compute_signature(row)
+			canon_info = canonicalize_loginformation(row.get('LogInfo') or '')
 			if fp not in groups:
-				groups[fp] = Group(fp, row, canon_msg)
+				groups[fp] = Group(fp, row, canon_msg, canon_info)
 			else:
 				groups[fp].update(row)
 
 	# Export deduped CSV
 	out_fields = [
-		'Fingerprint','Level','CanonicalMessage','ExampleMessage','Occurrences','FirstSeen','LastSeen'
+		'Fingerprint','LogPurpose','LogLevel','Application','Service','CanonicalMessage','CanonicalLogInfo',
+		'ExampleMessage','Occurrences','FirstSeen','LastSeen','HostCount','HostsSample','SourceCount','SourcesSample','Roles'
 	]
 	with open(output_csv, 'w', encoding='utf-8', newline='') as f_out:
 		writer = csv.DictWriter(f_out, fieldnames=out_fields)
 		writer.writeheader()
 		for g in groups.values():
+			hosts_sample = ", ".join(sorted(list(g.hosts))[:5])
+			sources_sample = ", ".join(sorted(list(g.sources))[:5])
+			roles_joined = ", ".join(sorted(list(g.roles)))
 			writer.writerow({
 				'Fingerprint': g.fingerprint[:16],
-				'Level': g.level,
+				'LogPurpose': g.purpose,
+				'LogLevel': g.level,
+				'Application': g.application,
+				'Service': g.service,
 				'CanonicalMessage': g.canonical_message,
+				'CanonicalLogInfo': g.canonical_info,
 				'ExampleMessage': g.example_message,
 				'Occurrences': g.count,
 				'FirstSeen': g.first_seen,
 				'LastSeen': g.last_seen,
+				'HostCount': len(g.hosts),
+				'HostsSample': hosts_sample,
+				'SourceCount': len(g.sources),
+				'SourcesSample': sources_sample,
+				'Roles': roles_joined,
 			})
 
 	# Optional JSONL export for LLM ingestion
@@ -272,13 +275,21 @@ def preprocess_csv_for_llm(input_csv: str, output_csv: str, output_jsonl: Option
 			for g in groups.values():
 				record = {
 					'fingerprint': g.fingerprint,
+					'purpose': g.purpose,
 					'level': g.level,
+					'application': g.application,
+					'service': g.service,
 					'canonical_message': g.canonical_message,
+					'canonical_log_info': g.canonical_info,
 					'occurrences': g.count,
 					'first_seen': g.first_seen,
 					'last_seen': g.last_seen,
+					'hosts': sorted(list(g.hosts))[:50],
+					'sources': sorted(list(g.sources))[:50],
+					'roles': sorted(list(g.roles)),
 					'example': {
-						'message': g.example_message
+						'message': g.example_message,
+						'source': g.example_source
 					}
 				}
 				jf.write(json.dumps(record, ensure_ascii=False) + "\n")

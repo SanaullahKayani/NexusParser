@@ -291,6 +291,82 @@ def process_csv_file(input_file: str, output_file: str = None):
         print(f"Error processing CSV file: {e}")
         sys.exit(1)
 
+
+def process_csv_file_minimal(input_file: str, output_file: str = None):
+    """Stream-clean a CSV file and write ONLY Timestamp, Level, Message columns.
+
+    - Attempts to locate timestamp, level, and message columns case-insensitively
+    - Cleans the Message using clean_error_message
+    - Writes a new CSV with header: Timestamp, Level, Message
+    """
+    if output_file is None:
+        if '.' in input_file:
+            name, ext = input_file.rsplit('.', 1)
+            output_file = f"{name}_clean_minimal.{ext}"
+        else:
+            output_file = f"{input_file}_clean_minimal"
+
+    cleaned_count = 0
+    total_count = 0
+
+    try:
+        # Increase field size limit to accommodate very large log fields
+        try:
+            csv.field_size_limit(sys.maxsize)
+        except OverflowError:
+            csv.field_size_limit(10_000_000)
+
+        with open(input_file, 'r', encoding='utf-8', newline='') as infile, \
+             open(output_file, 'w', encoding='utf-8', newline='') as outfile:
+
+            reader = csv.DictReader(infile)
+            fieldnames = reader.fieldnames or []
+
+            # Build case-insensitive lookup
+            lower_to_actual = {fn.lower(): fn for fn in fieldnames}
+
+            def find_col(candidates):
+                for cand in candidates:
+                    actual = lower_to_actual.get(cand.lower())
+                    if actual:
+                        return actual
+                return None
+
+            ts_col = find_col(['timestamp', 'time', 'datetime', 'date', 'logged at'])
+            level_col = find_col(['level', 'loglevel', 'severity', 'lvl'])
+            msg_col = find_col(['message', 'msg', 'log', 'text'])
+
+            writer = csv.DictWriter(outfile, fieldnames=['Timestamp', 'Level', 'Message'])
+            writer.writeheader()
+
+            for row in reader:
+                total_count += 1
+
+                timestamp_value = row.get(ts_col, '') if ts_col else ''
+                level_value = row.get(level_col, '') if level_col else ''
+                message_value = row.get(msg_col, '') if msg_col else ''
+
+                if message_value:
+                    message_value = clean_error_message(message_value)
+
+                writer.writerow({
+                    'Timestamp': timestamp_value,
+                    'Level': level_value,
+                    'Message': message_value,
+                })
+
+                cleaned_count += 1
+
+        print(f"Successfully processed {cleaned_count} out of {total_count} rows")
+        print(f"Cleaned file saved as: {output_file}")
+
+    except FileNotFoundError:
+        print(f"Error: Input file '{input_file}' not found")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error processing CSV file: {e}")
+        sys.exit(1)
+
 def main():
     """CLI entrypoint: python clean_error_messages.py <input> [output].
 
@@ -298,18 +374,29 @@ def main():
     - If input ends with .csv, cleans CSV columns 'Message' and 'LogInfo' if present
     """
     if len(sys.argv) < 2:
-        print("Usage: python clean_error_messages.py <input_file> [output_file]")
+        print("Usage: python clean_error_messages.py <input_file> [output_file] [--minimal]")
         print("Example: python clean_error_messages.py sample.jsonl")
         sys.exit(1)
     
-    input_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+    # Parse flags (simple): support --minimal
+    args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    flags = {a for a in sys.argv[1:] if a.startswith('--')}
+
+    if not args:
+        print("Usage: python clean_error_messages.py <input_file> [output_file] [--minimal]")
+        sys.exit(1)
+
+    input_file = args[0]
+    output_file = args[1] if len(args) > 1 else None
 
     lower_name = input_file.lower()
     if lower_name.endswith('.jsonl'):
         process_jsonl_file(input_file, output_file)
     elif lower_name.endswith('.csv'):
-        process_csv_file(input_file, output_file)
+        if '--minimal' in flags:
+            process_csv_file_minimal(input_file, output_file)
+        else:
+            process_csv_file(input_file, output_file)
     else:
         # Try JSONL first; if it fails with decode errors on first non-empty line,
         # suggest using the correct extension.

@@ -1,0 +1,22 @@
+org.interpol.scm.infrastructure.s3.exception.StorageException
+org.interpol.scm.infrastructure.health.I18nHealthIndicator
+stacktrace=org.springframework.web.client.ResourceAccessException:
+DiscoveryClient_BACKEND/VSLSCMMSV101.interpol.int:backend:8443 
+com.netflix.discovery.shared.transport.TransportException
+org.springframework.web.reactive.function.client.WebClientRequestException
+org.springframework.dao.IncorrectResultSizeDataAccessException
+org.springframework.orm.jpa.JpaSystemException
+error org.hibernate.exception.GenericJDBCException
+
+[insert into messages (action_type,bcc,body,cc,confidentiality,email_in_reply_to,email_references,has_attachments,has_entities,histories,is_read,last_history_event,message_date,message_id,owner,recipients,reply_or_forward_to,sender,state,subject,tags,thread_id,crime_domains,easy_number,flagged_for_follow_up,request_id,smart_case_id,urgency,type,id) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'<STR>',?)]
+[insert into messages (action_type,bcc,body,cc,confidentiality,email_in_reply_to,email_references,has_attachments,has_entities,histories,is_read,last_history_event,message_date,message_id,owner,recipients,reply_or_forward_to,sender,state,subject,tags,thread_id,crime_domains,easy_number,flagged_for_follow_up,request_id,smart_case_id,urgency,type,id) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'<STR>',?)]
+[select me1_0.id,me1_0.type,me1_0.action_type,me1_0.bcc,me1_0.body,me1_0.cc,me1_0.confidentiality,me1_0.email_in_reply_to,me1_0.email_references,me1_0.has_attachments,me1_0.has_entities,me1_0.histories,me1_0.is_read,me1_0.last_history_event,me1_0.message_date,me1_0.message_id,me1_0.owner,me1_0.recipients,me1_0.reply_or_forward_to,me1_0.sender,me1_0.state,me1_0.subject,me1_0.tags,me1_0.thread_id,me1_0.crime_domains,me1_0.easy_number,me1_0.flagged_for_follow_up,me1_0.request_id,me1_0.smart_case_id,me1_0.urgency from messages me1_0 where me1_0.state in (?,?) and (me1_0.message_id in (?) or ARRAY['<STR>']::text[] && array[me1_0.email_references]) order by me1_0.owner=? desc,me1_0.message_date desc offset ? rows fetch first ? rows only]
+
+
+rabbitConnectionFactory#1462b84:22/SimpleConnection@6a3e2a99
+rabbitConnectionFactory#1462b84:23/SimpleConnection@52a75c04
+rabbitConnectionFactory#1462b84:25/SimpleConnection@41e2a861
+rabbitConnectionFactory#1462b84:26/SimpleConnection@27dc4209
+
+[delegate=amqp://nexus-staging@<IP>:5671/nexus-staging, localPort=<NUM>]
+[delegate=amqp://nexus-staging@<IP>:5671/nexus-staging, localPort=<NUM>]
