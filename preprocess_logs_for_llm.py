@@ -66,9 +66,13 @@ R_ADDR_PORT_RE = re.compile(r"(R:[^/]+/)(?:\d{1,3}\.){3}\d{1,3}:(\d+)")
 # Generic patterns
 QUOTED_SINGLE_RE = re.compile(r"'[^']*'")
 QUOTED_DOUBLE_RE = re.compile(r'"[^"]*"')
-DURATION_MS_RE = re.compile(r"\b\d+ms\b")
+# Normalize milliseconds with optional space/decimals, e.g., "5852 ms", "32ms", "2.5 ms"
+DURATION_MS_RE = re.compile(r"\b\d+(?:\.\d+)?\s*ms\b", re.IGNORECASE)
 PORT_SUFFIX_RE = re.compile(r":\d+\b")
 METRICS_KV_NUM_RE = re.compile(r"\b(total|active|idle|waiting|size|connections|threads|count|pool|queue|timeout|retries|retry|attempts|commands|nrcpt)=(\d+)\b", re.IGNORECASE)
+# Generic startup timing patterns (language-agnostic structure)
+IN_SECONDS_GENERIC_RE = re.compile(r"\bin\s+([0-9]+(?:\.[0-9]+)?)\s*seconds?\b", re.IGNORECASE)
+PARENS_FOR_NUMBER_RE = re.compile(r"\(([^)]*?\bfor\s+)([0-9]+(?:\.[0-9]+)?)\)", re.IGNORECASE)
 
 EXPECTED_FIELDS = [
 	'Timestamp','Level','Message'
@@ -118,10 +122,13 @@ def canonicalize_message(message: str) -> str:
 	text = VAULT_SECRET_PATH_RE.sub(r"\1kv/approle/roles/nexus/staging/DC1/scm-api\2", text)
 	# 7) Collapse username specifics in "Cannot find matching office for user ..."
 	text = USER_NO_OFFICE_RE.sub(r"\1<USER>", text)
-	# 8) Normalize durations like 10000ms
-	text = DURATION_MS_RE.sub('<NUM>ms', text)
+	# 8) Normalize durations like 10000ms / 32 ms / 2.5 ms
+	text = DURATION_MS_RE.sub('<NUM> ms', text)
 	# 8b) Normalize pool metrics key=value numbers
 	text = METRICS_KV_NUM_RE.sub(lambda m: f"{m.group(1)}=<NUM>", text)
+	# 8c) Normalize generic "in <num> seconds" phrases and parenthetical "for <num>"
+	text = IN_SECONDS_GENERIC_RE.sub('in <NUM> seconds', text)
+	text = PARENS_FOR_NUMBER_RE.sub(lambda m: f"({m.group(1)}<NUM>)", text)
 	# 9) Replace quoted strings with tokens to collapse minor value differences
 	text = QUOTED_SINGLE_RE.sub("'<STR>'", text)
 	text = QUOTED_DOUBLE_RE.sub('"<STR>"', text)
