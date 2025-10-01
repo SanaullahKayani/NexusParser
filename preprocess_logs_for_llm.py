@@ -37,6 +37,15 @@ RABBIT_CONN_RE = re.compile(r"\b(rabbitConnectionFactory)#([0-9a-fA-F]{4,}):(\d+
 RABBIT_ANY_RE = re.compile(r"\brabbitConnectionFactory(?:#[0-9a-fA-F]+)?(?::\d+)?(?:/SimpleConnection@[0-9a-fA-F]+)?\b")
 # Remove any trailing suffix after canonical token
 RABBIT_TOKEN_TRAIL_RE = re.compile(r"(<rabbitConnectionFactory>)(?::[^\s\]]+)?")
+# Threads
+ON_THREAD_RE = re.compile(r"\bon thread [^,]+", re.IGNORECASE)
+EXEC_THREAD_NUM_RE = re.compile(r"\b(exec|ForkJoinPool-[^\s]+-worker|pool-\d+-thread|nio-\d+|https?-jsse-[^\s,]+-exec)-\d+\b", re.IGNORECASE)
+# Server IDs (e.g., VSLSCMMSV101, VSLSCMMSV102, VSLSCMMSV301, VSLSCMMSV302)
+SERVER_ID_RE = re.compile(r"\bVSLSCMMSV\d{3}\b", re.IGNORECASE)
+QUEUE_ID_WITH_COLON_RE = re.compile(r"\b[0-9A-F]{9,12}:", re.IGNORECASE)
+POSTFIX_PROC_RE = re.compile(r"\bpostfix-(receiver|sender)/(?:[a-z-]+)\[\d+\]", re.IGNORECASE)
+POSTFIX_PROC_PATH_FIX_RE = re.compile(r"\bpostfix-(receiver|sender)<PATH>\]", re.IGNORECASE)
+DOUBLE_EMAIL_FIX_RE = re.compile(r"<<EMAIL>>")
 # SQL queries (collapse to <QUERY>) including bracketed forms
 BRACKETED_SQL_RE = re.compile(r"\[(?:select|insert|update|delete)[\s\S]*?\]", re.IGNORECASE)
 SQL_VERB_RE = re.compile(r"\b(?:select|insert|update|delete)\b[\s\S]*?(?=\)|\]|$)", re.IGNORECASE)
@@ -59,7 +68,7 @@ QUOTED_SINGLE_RE = re.compile(r"'[^']*'")
 QUOTED_DOUBLE_RE = re.compile(r'"[^"]*"')
 DURATION_MS_RE = re.compile(r"\b\d+ms\b")
 PORT_SUFFIX_RE = re.compile(r":\d+\b")
-METRICS_KV_NUM_RE = re.compile(r"\b(total|active|idle|waiting|size|connections|threads|count|pool|queue|timeout|retries|retry|attempts)=(\d+)\b", re.IGNORECASE)
+METRICS_KV_NUM_RE = re.compile(r"\b(total|active|idle|waiting|size|connections|threads|count|pool|queue|timeout|retries|retry|attempts|commands|nrcpt)=(\d+)\b", re.IGNORECASE)
 
 EXPECTED_FIELDS = [
 	'Timestamp','Level','Message'
@@ -135,6 +144,9 @@ def canonicalize_message(message: str) -> str:
 	# 11) Canonicalize paths (Unix/Windows) to <PATH>
 	text = UNIX_PATH_RE.sub('<PATH>', text)
 	text = WINDOWS_PATH_RE.sub('<PATH>', text)
+	# 11a) Normalize postfix process segments to postfix-<role>/<PROC>
+	text = POSTFIX_PROC_RE.sub(lambda m: f"postfix-{m.group(1)}/<PROC>", text)
+	text = POSTFIX_PROC_PATH_FIX_RE.sub(lambda m: f"postfix-{m.group(1)}/<PROC>]", text)
 	# 12) Reduce fully-qualified class names to simple class names
 	text = FQ_CLASS_RE.sub(lambda m: m.group(1), text)
 	# 13) Remove explicit 'stacktrace=' prefixes
@@ -147,6 +159,23 @@ def canonicalize_message(message: str) -> str:
 	text = BRACKETED_SQL_RE.sub('<QUERY>', text)
 	# As a fallback, collapse standalone SQL starting with verbs
 	text = SQL_VERB_RE.sub('<QUERY>', text)
+	# 17) Collapse varying thread identifiers
+	text = ON_THREAD_RE.sub('on thread <THREAD>', text)
+	text = EXEC_THREAD_NUM_RE.sub('<THREAD>', text)
+	# 18) Canonicalize server identifiers
+	text = SERVER_ID_RE.sub('<SERVER>', text)
+	# 19) Canonicalize queue IDs like 05E19200234:
+	text = QUEUE_ID_WITH_COLON_RE.sub('<QUEUE_ID>:', text)
+	# 20) Normalize metrics delay/delays numeric sequences to <NUM>
+	METRICS_DELAY_RE = re.compile(r"\b(delay|delays)=([0-9]+(?:\.[0-9]+)?(?:/[0-9]+(?:\.[0-9]+)?){0,3})\b", re.IGNORECASE)
+	def _normalize_delays(m):
+		key = m.group(1).lower()
+		seq = m.group(2)
+		parts = seq.split('/')
+		return f"{key}=" + "/".join(['<NUM>' for _ in parts])
+	text = METRICS_DELAY_RE.sub(_normalize_delays, text)
+	# 21) Fix accidental double tokenization of EMAIL
+	text = DOUBLE_EMAIL_FIX_RE.sub('<EMAIL>', text)
 	return text
 
 

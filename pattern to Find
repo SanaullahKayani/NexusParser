@@ -20,3 +20,12 @@ rabbitConnectionFactory#1462b84:26/SimpleConnection@27dc4209
 
 [delegate=amqp://nexus-staging@<IP>:5671/nexus-staging, localPort=<NUM>]
 [delegate=amqp://nexus-staging@<IP>:5671/nexus-staging, localPort=<NUM>]
+
+# Threads
+Connection leak detection triggered for ConnectionWrapper@<HEX> on thread https-jsse-nio-8443-exec-4, stack trace follows Exception: Apparent connection leak detected
+Connection leak detection triggered for ConnectionWrapper@<HEX> on thread https-jsse-nio-8443-exec-21, stack trace follows Exception: Apparent connection leak detected
+Connection leak detection triggered for ConnectionWrapper@<HEX> on thread scheduling-1, stack trace follows Exception: Apparent connection leak detected
+Connection leak detection triggered for ConnectionWrapper@<HEX> on thread https-jsse-nio-8443-exec-32, stack trace follows Exception: Apparent connection leak detected
+
+
+VSLSCMMSV101, VSLSCMMSV102 is our server id likewise VSLSCMMSV301 and VSLSCMMSV302 is our server id.
