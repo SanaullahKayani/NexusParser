@@ -25,6 +25,18 @@ ANGLE_MSGID_RE = re.compile(r"<[^>]+@[^>]+>")
 EASY_NUM_RE = re.compile(r"\b\d{2,}-\d{2,}-\d+-\d+\b")
 HEX_RE = re.compile(r"\b0x[0-9a-fA-F]+\b")
 BIG_NUM_RE = re.compile(r"\b\d{5,}\b")
+UNIX_PATH_RE = re.compile(r"(?:(?<![A-Za-z]):/|/)\S+")
+WINDOWS_PATH_RE = re.compile(r"(?:[A-Za-z]:\\|\\\\)\S+")
+FQ_CLASS_RE = re.compile(r"\b(?:[a-z_][\w]*\.)+([A-Z][\w$]+)\b")
+STACKTRACE_PREFIX_RE = re.compile(r"\bstacktrace=")
+GENERIC_AT_HEX_RE = re.compile(r"@([0-9a-fA-F]{6,})\b")
+BEAN_HASH_RE = re.compile(r"\b([A-Za-z][A-Za-z0-9_$]*)#([0-9a-fA-F]{4,})\b")
+# Rabbit connection canonicalization
+RABBIT_CONN_RE = re.compile(r"\b(rabbitConnectionFactory)#([0-9a-fA-F]{4,}):(\d+)/SimpleConnection@([0-9a-fA-F]{4,})\b")
+# General rabbitConnectionFactory variants (collapse all to <rabbitConnectionFactory>)
+RABBIT_ANY_RE = re.compile(r"\brabbitConnectionFactory(?:#[0-9a-fA-F]+)?(?::\d+)?(?:/SimpleConnection@[0-9a-fA-F]+)?\b")
+# Remove any trailing suffix after canonical token
+RABBIT_TOKEN_TRAIL_RE = re.compile(r"(<rabbitConnectionFactory>)(?::[^\s\]]+)?")
 
 WHITESPACE_RE = re.compile(r"\s+")
 
@@ -42,9 +54,19 @@ R_ADDR_PORT_RE = re.compile(r"(R:[^/]+/)(?:\d{1,3}\.){3}\d{1,3}:(\d+)")
 # Generic patterns
 QUOTED_SINGLE_RE = re.compile(r"'[^']*'")
 QUOTED_DOUBLE_RE = re.compile(r'"[^"]*"')
-DURATION_MS_RE = re.compile(r"\b\d+ms\b")
+DURATION_MS_RE = re.compile(r"\b\d+(?:\.\d+)?\s*ms\b", re.IGNORECASE)
 PORT_SUFFIX_RE = re.compile(r":\d+\b")
 METRICS_KV_NUM_RE = re.compile(r"\b(total|active|idle|waiting|size|connections|threads|count|pool|queue|timeout|retries|retry|attempts)=(\d+)\b", re.IGNORECASE)
+SIMPLE_KV_NUM_RE = re.compile(r"\b(port|version|count|client|status|sets)\s*(?:=|:)?\s*([0-9]+(?:\.[0-9]+)*)\b", re.IGNORECASE)
+IN_SECONDS_GENERIC_RE = re.compile(r"\bin\s+([0-9]+(?:\.[0-9]+)?)\s*seconds?\b", re.IGNORECASE)
+PARENS_FOR_NUMBER_RE = re.compile(r"\(([^)]*?\bfor\s+)([0-9]+(?:\.[0-9]+)?)\)", re.IGNORECASE)
+BRACKETED_SQL_RE = re.compile(r"\[(?:select|insert|update|delete)[\s\S]*?\]", re.IGNORECASE)
+SQL_VERB_RE = re.compile(r"\b(?:select|insert|update|delete)\b[\s\S]*?(?=\)|\]|$)", re.IGNORECASE)
+ON_THREAD_RE = re.compile(r"\bon thread [^,]+", re.IGNORECASE)
+EXEC_THREAD_NUM_RE = re.compile(r"\b(exec|ForkJoinPool-[^\s]+-worker|pool-\d+-thread|nio-\d+|https?-jsse-[^\s,]+-exec)-\d+\b", re.IGNORECASE)
+SERVER_ID_RE = re.compile(r"\bVSLSCMMSV\d{3}\b", re.IGNORECASE)
+QUEUE_ID_WITH_COLON_RE = re.compile(r"\b[0-9A-F]{9,12}:", re.IGNORECASE)
+DOUBLE_EMAIL_FIX_RE = re.compile(r"<<EMAIL>>")
 
 EXPECTED_FIELDS = [
 	'Timestamp','LogLevel','LogPurpose','Hostname','Application','Service','Instance','Office','Country','Roles','Message','SourceFile','FileType','LogInfo'
@@ -94,10 +116,15 @@ def canonicalize_message(message: str) -> str:
 	text = VAULT_SECRET_PATH_RE.sub(r"\1kv/approle/roles/nexus/staging/DC1/scm-api\2", text)
 	# 7) Collapse username specifics in "Cannot find matching office for user ..."
 	text = USER_NO_OFFICE_RE.sub(r"\1<USER>", text)
-	# 8) Normalize durations like 10000ms
-	text = DURATION_MS_RE.sub('<NUM>ms', text)
+	# 8) Normalize durations like 10000ms / 32 ms / 2.5 ms
+	text = DURATION_MS_RE.sub('<NUM> ms', text)
 	# 8b) Normalize pool metrics key=value numbers
 	text = METRICS_KV_NUM_RE.sub(lambda m: f"{m.group(1)}=<NUM>", text)
+	# 8b.1) Normalize simple key:number (with optional colon) to key=<NUM>
+	text = SIMPLE_KV_NUM_RE.sub(lambda m: f"{m.group(1).lower()}=<NUM>", text)
+	# 8c) Normalize generic "in <num> seconds" phrases and parenthetical "for <num>"
+	text = IN_SECONDS_GENERIC_RE.sub('in <NUM> seconds', text)
+	text = PARENS_FOR_NUMBER_RE.sub(lambda m: f"({m.group(1)}<NUM>)", text)
 	# 9) Replace quoted strings with tokens to collapse minor value differences
 	text = QUOTED_SINGLE_RE.sub("'<STR>'", text)
 	text = QUOTED_DOUBLE_RE.sub('"<STR>"', text)
@@ -111,6 +138,42 @@ def canonicalize_message(message: str) -> str:
 	text = SYSLOG_TS_RE.sub('<SYSLOG_TS>', text)
 	text = HEX_RE.sub('<HEX>', text)
 	text = BIG_NUM_RE.sub('<NUM>', text)
+	# 10) Canonicalize rabbit connection patterns EARLY -> <rabbitConnectionFactory>
+	text = RABBIT_CONN_RE.sub('<rabbitConnectionFactory>', text)
+	text = RABBIT_ANY_RE.sub('<rabbitConnectionFactory>', text)
+	text = RABBIT_TOKEN_TRAIL_RE.sub(r"\1", text)
+	# 11) Canonicalize paths (Unix/Windows) to <PATH>
+	text = UNIX_PATH_RE.sub('<PATH>', text)
+	text = WINDOWS_PATH_RE.sub('<PATH>', text)
+	# 12) Reduce fully-qualified class names to simple class names
+	text = FQ_CLASS_RE.sub(lambda m: m.group(1), text)
+	# 13) Remove explicit 'stacktrace=' prefixes
+	text = STACKTRACE_PREFIX_RE.sub('', text)
+	# 14) Canonicalize hex ids after '@' to @<HEX>
+	text = GENERIC_AT_HEX_RE.sub('@<HEX>', text)
+	# 15) Canonicalize bean hash suffixes like bean#1462b84 -> bean#<HEX>
+	text = BEAN_HASH_RE.sub(lambda m: f"{m.group(1)}#<HEX>", text)
+	# 16) Collapse SQL queries to <QUERY>
+	text = BRACKETED_SQL_RE.sub('<QUERY>', text)
+	# As a fallback, collapse standalone SQL starting with verbs
+	text = SQL_VERB_RE.sub('<QUERY>', text)
+	# 17) Collapse varying thread identifiers
+	text = ON_THREAD_RE.sub('on thread <THREAD>', text)
+	text = EXEC_THREAD_NUM_RE.sub('<THREAD>', text)
+	# 18) Canonicalize server identifiers
+	text = SERVER_ID_RE.sub('<SERVER>', text)
+	# 19) Canonicalize queue IDs like 05E19200234:
+	text = QUEUE_ID_WITH_COLON_RE.sub('<QUEUE_ID>:', text)
+	# 20) Normalize metrics delay/delays numeric sequences to <NUM>
+	METRICS_DELAY_RE = re.compile(r"\b(delay|delays)=([0-9]+(?:\.[0-9]+)?(?:/[0-9]+(?:\.[0-9]+)?){0,3})\b", re.IGNORECASE)
+	def _normalize_delays(m):
+		key = m.group(1).lower()
+		seq = m.group(2)
+		parts = seq.split('/')
+		return f"{key}=" + "/".join(['<NUM>' for _ in parts])
+	text = METRICS_DELAY_RE.sub(_normalize_delays, text)
+	# 21) Fix accidental double tokenization of EMAIL
+	text = DOUBLE_EMAIL_FIX_RE.sub('<EMAIL>', text)
 	# Normalize whitespace and trim
 	text = WHITESPACE_RE.sub(' ', text).strip()
 	return text
@@ -300,7 +363,7 @@ def preprocess_csv_for_llm(input_csv: str, output_csv: str, output_jsonl: Option
 
 
 def main():
-	input_csv = os.environ.get('SCM_INPUT_CSV', 'technical-2025-09-05_all_clean_minimal.csv')
+	input_csv = os.environ.get('SCM_INPUT_CSV', 'technical-2025-09-05_all_cleaned.csv')
 	output_csv = os.environ.get('SCM_OUTPUT_CSV', 'scm_logs_llm_ready.csv')
 	output_jsonl = os.environ.get('SCM_OUTPUT_JSONL', 'scm_logs_llm_ready.jsonl')
 

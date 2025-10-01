@@ -1,0 +1,7 @@
+python .\scm_log_extractor_all.py
+
+python .\clean_error_messages.py .\technical-2025-09-05_all.csv --minimal 
+OR
+python .\clean_error_messages.py .\technical-2025-09-05_all.csv (for all log columns)
+
+python '.\preprocess_logs_for_llm.py'

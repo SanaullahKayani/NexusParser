@@ -267,11 +267,25 @@ def process_csv_file(input_file: str, output_file: str = None):
 
             reader = csv.DictReader(infile)
             fieldnames = reader.fieldnames or []
+            # Build case-insensitive lookup to find Level column
+            lower_to_actual = {fn.lower(): fn for fn in fieldnames}
+            def find_col(candidates):
+                for cand in candidates:
+                    actual = lower_to_actual.get(cand.lower())
+                    if actual:
+                        return actual
+                return None
+            level_col = find_col(['level', 'loglevel', 'severity', 'lvl', 'log level', 'log_level'])
             writer = csv.DictWriter(outfile, fieldnames=fieldnames)
             writer.writeheader()
 
             for row in reader:
                 total_count += 1
+                # Exclude rows where LogLevel/Level is empty or whitespace
+                if level_col:
+                    _lvl = row.get(level_col, '')
+                    if not _lvl or not str(_lvl).strip():
+                        continue
                 # Clean Message and LogInfo if present
                 if 'Message' in row and row['Message']:
                     row['Message'] = clean_error_message(row['Message'])
@@ -345,6 +359,10 @@ def process_csv_file_minimal(input_file: str, output_file: str = None):
                 timestamp_value = row.get(ts_col, '') if ts_col else ''
                 level_value = row.get(level_col, '') if level_col else ''
                 message_value = row.get(msg_col, '') if msg_col else ''
+
+                # Exclude rows where Level is empty or whitespace
+                if not level_value or not str(level_value).strip():
+                    continue
 
                 if message_value:
                     message_value = clean_error_message(message_value)

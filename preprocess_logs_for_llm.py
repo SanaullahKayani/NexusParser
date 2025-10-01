@@ -70,6 +70,8 @@ QUOTED_DOUBLE_RE = re.compile(r'"[^"]*"')
 DURATION_MS_RE = re.compile(r"\b\d+(?:\.\d+)?\s*ms\b", re.IGNORECASE)
 PORT_SUFFIX_RE = re.compile(r":\d+\b")
 METRICS_KV_NUM_RE = re.compile(r"\b(total|active|idle|waiting|size|connections|threads|count|pool|queue|timeout|retries|retry|attempts|commands|nrcpt)=(\d+)\b", re.IGNORECASE)
+# Additional simple key:number patterns with optional '=', ':' or space; numbers may be floats or dotted (e.g., 0.5.25)
+SIMPLE_KV_NUM_RE = re.compile(r"\b(port|version|count|client|status|sets)\s*(?:=|:)?\s*([0-9]+(?:\.[0-9]+)*)\b", re.IGNORECASE)
 # Generic startup timing patterns (language-agnostic structure)
 IN_SECONDS_GENERIC_RE = re.compile(r"\bin\s+([0-9]+(?:\.[0-9]+)?)\s*seconds?\b", re.IGNORECASE)
 PARENS_FOR_NUMBER_RE = re.compile(r"\(([^)]*?\bfor\s+)([0-9]+(?:\.[0-9]+)?)\)", re.IGNORECASE)
@@ -126,6 +128,8 @@ def canonicalize_message(message: str) -> str:
 	text = DURATION_MS_RE.sub('<NUM> ms', text)
 	# 8b) Normalize pool metrics key=value numbers
 	text = METRICS_KV_NUM_RE.sub(lambda m: f"{m.group(1)}=<NUM>", text)
+	# 8b.1) Normalize simple key:number (with optional colon) to key=<NUM>
+	text = SIMPLE_KV_NUM_RE.sub(lambda m: f"{m.group(1).lower()}=<NUM>", text)
 	# 8c) Normalize generic "in <num> seconds" phrases and parenthetical "for <num>"
 	text = IN_SECONDS_GENERIC_RE.sub('in <NUM> seconds', text)
 	text = PARENS_FOR_NUMBER_RE.sub(lambda m: f"({m.group(1)}<NUM>)", text)
