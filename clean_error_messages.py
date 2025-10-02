@@ -267,6 +267,8 @@ def process_csv_file(input_file: str, output_file: str = None):
 
             reader = csv.DictReader(infile)
             fieldnames = reader.fieldnames or []
+            # Remove LogInfo column from fieldnames if present
+            fieldnames = [fn for fn in fieldnames if fn != 'LogInfo']
             # Build case-insensitive lookup to find Level column
             lower_to_actual = {fn.lower(): fn for fn in fieldnames}
             def find_col(candidates):
@@ -289,8 +291,12 @@ def process_csv_file(input_file: str, output_file: str = None):
                 # Clean Message and LogInfo if present
                 if 'Message' in row and row['Message']:
                     row['Message'] = clean_error_message(row['Message'])
-                if 'LogInfo' in row and row['LogInfo']:
-                    row['LogInfo'] = clean_canonical_log_info(row['LogInfo'])
+                # if 'LogInfo' in row and row['LogInfo']:
+                #     row['LogInfo'] = clean_canonical_log_info(row['LogInfo'])
+
+                # Remove LogInfo column from row data if present
+                if 'LogInfo' in row:
+                    del row['LogInfo']
 
                 writer.writerow(row)
                 cleaned_count += 1

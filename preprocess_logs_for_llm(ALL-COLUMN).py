@@ -69,7 +69,7 @@ QUEUE_ID_WITH_COLON_RE = re.compile(r"\b[0-9A-F]{9,12}:", re.IGNORECASE)
 DOUBLE_EMAIL_FIX_RE = re.compile(r"<<EMAIL>>")
 
 EXPECTED_FIELDS = [
-	'Timestamp','LogLevel','LogPurpose','Hostname','Application','Service','Instance','Office','Country','Roles','Message','SourceFile','FileType','LogInfo'
+	'Timestamp','LogLevel','LogPurpose','Hostname','Application','Service','Instance','Office','Country','Roles','Message','SourceFile','FileType'#,'LogInfo'
 ]
 
 TIMESTAMP_FORMATS = [
@@ -210,7 +210,8 @@ def compute_signature(row: Dict[str, str]) -> Tuple[str, str]:
 	app = (row.get('Application') or '').lower()
 	service = (row.get('Service') or '').lower()
 	canon_msg = canonicalize_message(row.get('Message') or '')
-	canon_info = canonicalize_loginformation(row.get('LogInfo') or '')
+	# canon_info = canonicalize_loginformation(row.get('LogInfo') or '')
+	canon_info = ''  # Commented out LogInfo processing
 	base = '\n'.join([purpose, level, app, service, canon_msg, canon_info])
 	digest = hashlib.sha1(base.encode('utf-8', errors='ignore')).hexdigest()
 	return digest, canon_msg
@@ -229,7 +230,8 @@ class Group:
 		self.application = (row.get('Application') or '').strip()
 		self.service = (row.get('Service') or '').strip()
 		self.canonical_message = canonical_message
-		self.canonical_info = canonical_info
+		# self.canonical_info = canonical_info  # Commented out LogInfo
+		self.canonical_info = ''  # Set to empty string instead
 		self.example_message = (row.get('Message') or '').strip()
 		self.example_source = (row.get('SourceFile') or '').strip()
 		self.roles: Set[str] = set(filter(None, [(row.get('Roles') or '').strip()]))
@@ -295,7 +297,8 @@ def preprocess_csv_for_llm(input_csv: str, output_csv: str, output_jsonl: Option
 			stats['rows_read'] += 1
 			# Compute signature
 			fp, canon_msg = compute_signature(row)
-			canon_info = canonicalize_loginformation(row.get('LogInfo') or '')
+			# canon_info = canonicalize_loginformation(row.get('LogInfo') or '')  # Commented out LogInfo
+			canon_info = ''  # Set to empty string instead
 			if fp not in groups:
 				groups[fp] = Group(fp, row, canon_msg, canon_info)
 			else:
@@ -303,7 +306,7 @@ def preprocess_csv_for_llm(input_csv: str, output_csv: str, output_jsonl: Option
 
 	# Export deduped CSV
 	out_fields = [
-		'Fingerprint','LogPurpose','LogLevel','Application','Service','CanonicalMessage','CanonicalLogInfo',
+		'Fingerprint','LogPurpose','LogLevel','Application','Service','CanonicalMessage',#'CanonicalLogInfo',
 		'ExampleMessage','Occurrences','FirstSeen','LastSeen','HostCount','HostsSample','SourceCount','SourcesSample','Roles'
 	]
 	with open(output_csv, 'w', encoding='utf-8', newline='') as f_out:
@@ -320,7 +323,7 @@ def preprocess_csv_for_llm(input_csv: str, output_csv: str, output_jsonl: Option
 				'Application': g.application,
 				'Service': g.service,
 				'CanonicalMessage': g.canonical_message,
-				'CanonicalLogInfo': g.canonical_info,
+				# 'CanonicalLogInfo': g.canonical_info,  # Commented out LogInfo
 				'ExampleMessage': g.example_message,
 				'Occurrences': g.count,
 				'FirstSeen': g.first_seen,
@@ -343,7 +346,7 @@ def preprocess_csv_for_llm(input_csv: str, output_csv: str, output_jsonl: Option
 					'application': g.application,
 					'service': g.service,
 					'canonical_message': g.canonical_message,
-					'canonical_log_info': g.canonical_info,
+					# 'canonical_log_info': g.canonical_info,  # Commented out LogInfo
 					'occurrences': g.count,
 					'first_seen': g.first_seen,
 					'last_seen': g.last_seen,
